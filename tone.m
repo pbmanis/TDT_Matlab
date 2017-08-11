@@ -1,14 +1,14 @@
 function [varargout] = tone(sampfreq, PARS)
 % tonepip  - generate a tone pip with amplitude (V), frequency (Hz)
 % delay (msec), duration (msec).
-
+% does not shape the tone - just generates quadurature signals
 % 4/2010 P. Manis. Minor fix for delay to first tone (was adding 2 delays).
 % 8/2016-10/2016: Modified P. Manis/ T. Ropp
 % The input structure PARS must contain:
 % PARS.amp
 % PARS.freq
 % PARS.duration
-% PARS.RF
+% PARS.RF  % ignored
 % PARS.phase0
 
 if nargout == 0 

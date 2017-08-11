@@ -1,4 +1,4 @@
-function [varargout] = tonepip(sampfreq, PARS) % amp, freq, delay, duration, rf, phase0, ipi, np, alternate)
+function [varargout] = tonepip(sampfreq, PARS)
 % tonepip  - generate a tone pip with amplitude (V), frequency (Hz)
 % delay (msec), duration (msec).
 % if no rf (risefall) time is given, cosine shaping 5 msec is applied.
@@ -6,7 +6,7 @@ function [varargout] = tonepip(sampfreq, PARS) % amp, freq, delay, duration, rf,
 %
 % 4/2010 P. Manis. Minor fix for delay to first tone (was adding 2 delays).
 % 
-% Input structure PARS must have the following members:
+% Input structure PARS must have at least the following members:
 % PARS.n_sweeps = 1;
 % PARS.amp = 5.;  % nominal V output
 % PARS.freq = 2000.; %hertz
@@ -15,7 +15,8 @@ function [varargout] = tonepip(sampfreq, PARS) % amp, freq, delay, duration, rf,
 % PARS.duration = 100.;  % milliseconds
 % PARS.rf = 2.5;  % milliseconds
 % PARS.phase0 = 0.;
-%
+% PARS.sine = 0.
+% PARS.dmod = 0.
 
 if nargout == 0 
     PARS = testpars();
@@ -27,25 +28,25 @@ end;
 % 3. add a delay to the start of the signal
 % 4. if there are multiple pulses, then we need to add code to concatenate
 % appropriately.
-[ws,wc] = tone(sampfreq, PARS);
+[ws, wc] = tone(sampfreq, PARS);
 if PARS.sine == 0
-    if PARS.dmod > 0.
-        ws = ws .* envel(sampfreq, PARS);  % envelope is phase shifted -90 to start at 0.
-    end;
-    wf = cosgate(sampfreq, ws, PARS.rf);
-else 
-     if PARS.dmod > 0.
-        wc = wc .* envel(sampfreq, PARS);  % envelope is phase shifted -90 to start at 0.
-    end;
-    wf = cosgate(sampfreq, wc, PARS.rf);
-end;
+    % use ws not wc
+    wf = ws;
+else
+    wf = wc;
+end
+if PARS.dmod > 0.  % add modulation
+    wf = wf .* envel(sampfreq, PARS);  % envelope is phase shifted -90 to start at 0.
+end
+wf = cosgate(sampfreq, wf, PARS.rf);
 sratems = 1000.0/sampfreq;
 delaypts = floor(PARS.delay/sratems);
 wf = vertcat(zeros(delaypts, 1), wf);
 if(nargout >= 1)
     varargout{1} = wf;
-end;
+end
 
+% if called from command line with no output, plot the spectrum
 if(nargout == 0)
     [Pxx,F] = pwelch(wf, 512, 64, 4096, sampfreq);
 
@@ -68,28 +69,28 @@ end;
 
 end
 
-function [p] = testpars()
-
-% This routine generates a noise using the input arguments as follows:
-PARS.n_sweeps = 1;
-PARS.amp = 5.;  % nominal V output
-PARS.freq = 2000.; %hertz
-PARS.attn = 30.;
-PARS.delay = 50.0;  % milliseconds
-PARS.duration = 500.;  % milliseconds
-PARS.rf = 2.5;  % milliseconds
-PARS.phase0 = 0.;
-PARS.dmod = 1;
-PARS.fmod = 20.;
-% The subsequent arguments depend on the mode
-PARS.noise.passtype = 'notch'; % for noise, choices wideband, lowpass, highpass, notch, bandpass and octave
-PARS.noise.f1 = 6000.;  % high pass corner freq
-PARS.noise.f2 = 8000.; % low pass corner
-PARS.noise.ftype = 'butter';
-PARS.noise.order = 8;
-PARS.noise.nstage = 4;
-PARS.noise.clip = [-10., 10.];
-
-p = PARS;
-end
-
+% function [p] = testpars()
+% 
+% % This routine generates a noise using the input arguments as follows:
+% PARS.n_sweeps = 1;
+% PARS.amp = 5.;  % nominal V output
+% PARS.freq = 2000.; %hertz
+% PARS.attn = 30.;
+% PARS.delay = 50.0;  % milliseconds
+% PARS.duration = 500.;  % milliseconds
+% PARS.rf = 2.5;  % milliseconds
+% PARS.phase0 = 0.;
+% PARS.dmod = 1;
+% PARS.fmod = 20.;
+% % The subsequent arguments depend on the mode
+% PARS.noise.passtype = 'notch'; % for noise, choices wideband, lowpass, highpass, notch, bandpass and octave
+% PARS.noise.f1 = 6000.;  % high pass corner freq
+% PARS.noise.f2 = 8000.; % low pass corner
+% PARS.noise.ftype = 'butter';
+% PARS.noise.order = 8;
+% PARS.noise.nstage = 4;
+% PARS.noise.clip = [-10., 10.];
+% 
+% p = PARS;
+% end
+% 

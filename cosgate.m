@@ -30,6 +30,8 @@ for k = j+1:length(ws) % decay shape
     fil(k) = fil(nfilter_points+i); %reverse the rising phase
     i = i - 1;
 end;
+size(gatedwave)
+size(fil)
 
 gatedwave = gatedwave.*fil; % this makes the stimulus pulse (sine, ramped)
 

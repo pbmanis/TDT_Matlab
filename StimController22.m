@@ -7,10 +7,12 @@ function []=StimController22(varargin)
 
 global AO RZ5D RPActive DA RP
 global STIM STPARS STCOUNT SPKR SPLCAL
-global CAL
+global CAL StopKeyHit
 
 STCOUNT = 0;
 RPActive = 0;
+StopKeyHit = 0;
+
 fprintf(2, 'StimController2.m [Using NI, PA5, and RZ5D]\n');
 
 % set up for calibration
@@ -22,7 +24,7 @@ switch (SPKR.id)
         SPLCAL.maxtones = 83.9; % New calibration, 5/1/2010 P. Manis Assumes ES Driver at - 6dB for linearity
         SPLCAL.maxclick = 79.5; % 84.8; 79 is with 6db attenuation ES1...
     case {'MF1'}
-        SPKR.attn = 30.0; % for tones... 
+        SPKR.attn = 30.0; % for tones...
         SPLCAL.maxtones = 110.0; % for mf1 speaker
         SPLCAL.maxclick = 108.5; % set with peak 1/4" mic output to match 80dB spl tone at "1e-6"
         % 114.8; % Old calibration 2007-4/30/2010db SPL with 0 dB attenuation (5 V signal)
@@ -58,7 +60,7 @@ STPARS.rf = 2.5;  % milliseconds
 STPARS.phase0 = 0.;
 STPARS.dmod = 0.; % Modulation depth (0-1).
 STPARS.fmod = 20.; % Hz modulation
-STPARS.ipi = 100.; % milliseconds  
+STPARS.ipi = 100.; % milliseconds
 STPARS.np = 1;
 STPARS.alternate = 0;
 STPARS.nreps = 1;
@@ -80,7 +82,7 @@ externalTrigger = 1;
 AO = get_NI(externalTrigger);
 
 if RPActive == 1
-    STIM.sample_freq = samp_flist(samp_cof_flag); % get RP2.1 rate 
+    STIM.sample_freq = samp_flist(samp_cof_flag); % get RP2.1 rate
 else
     STIM.sample_freq = 500000.;
     AO.Rate = STIM.sample_freq; % using NI Card, rate set in harware_initialization.m
@@ -91,192 +93,235 @@ set_attn(120.)
 cmd = '';
 set(gcf,'currentchar',' ')
 while get(gcf,'currentchar')==' '
-%while 1
+    %while 1
     cmd = input('Stim Controller> ', 's');
     [cmdkey, remain] = strtok(cmd, ' ');
     % fprintf(1, '    cmd: %s\n', cmdkey);
     if strcmp(cmdkey, '')
         continue
     end
+    % get the rest of the arguments here; stored in a cell array
+    args = {};  % capture arguments
+    i = 1;
+    while ~isempty(remain)
+        [args{i}, remain] = strtok(remain, ' ');
+        i = i + 1;
+    end
+    % args
+    nargs = i-1;
+    
     switch cmdkey
-         case 'tonepip'            
-            if isempty(remain)
+        case {'tonepip', 't', 'tone'}
+            if nargs == 0
                 spl = 75.0;
             else
-                a = textscan(remain, '%s');
-                spl = seq_parse(a{1}{1});
+                spl = seq_parse(args{1});
                 spl = spl{1};
             end
-            % STPARS
             STIM.wave  = tonepip(STIM.sample_freq, STPARS);
-            %STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS); 
+            %STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+            STPARS.acquire_mode = 2;
+            STPARS.dmod = 0.;
             set_dbSPL(spl, STPARS.freq);
             one_stim_set(STPARS);
             set_attn(120.);
-            stop_stim(RP, DA, AO);
+            stop_stim();
             
         case 'ri'
             fprintf(2, 'RI\n');
-            a = textscan(remain, '%s %s');
-            STPARS.freq = 1000*str2double(a{1}{1});
-            attnlist = seq_parse(a{2}{1});
-            attnlist = attnlist{1};
-            %fprintf (1, 'RI: points %f\n', STPARS.ISI*RZ5D.dev_SF);
-            STIM.wave  = tonepip(STIM.sample_freq, STPARS);
-            STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-            plot(STIM.wave);
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn, STPARS.freq);
-                fprintf(2, 'Attenuator: %f  [%d]\n', attnlist(i), i);
-                one_stim_set(STPARS);
-            end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-            
-        case {'map', 'fra', 'FRA'}
-            fprintf(2, 'Frequency response area map\n');
-            a = textscan(remain, '%s %s');
-            freqs = seq_parse(a{1}{1});
-            freqs = freqs{1};
-            attnlist = seq_parse(a{2}{1});
-            attnlist = attnlist{1};
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn, STPARS.freq);
-                for j = 1:length(freqs)
-                    STPARS.freq = 1000.*freqs(j);
-                    STIM.wave  = tonepip(STIM.sample_freq, STPARS);
-                    STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-                    fprintf(1, 'F: %7.3f  I: %4.1f\n', STPARS.freq, STPARS.attn);
+            if nargs ~= 2
+                fprintf(1, '   Usage: ri frequency attnsequence\n');
+            else
+                STPARS.freq = 1000*str2double(args{1});
+                attnlist = seq_parse(args{2});
+                attnlist = attnlist{1};
+                %fprintf (1, 'RI: points %f\n', STPARS.ISI*RZ5D.dev_SF);
+                STIM.wave  = tonepip(STIM.sample_freq, STPARS);
+                STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, STPARS.freq);
+                    fprintf(2, 'Attenuator: %f  [%d]\n', attnlist(i), i);
                     one_stim_set(STPARS);
                 end
+                set_attn(120.);
+                stop_stim();
             end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
             
-        case 'noise'  % noise rate-intensity 
+        case {'map', 'fra', 'FRA', 'frm'}
+            fprintf(2, 'Frequency response area map\n');
+            if nargs ~= 2
+                fprintf(1, '   Usage: map/fra/frm freqsequence attnsequence\n');
+            else
+                freqs = seq_parse(args{1});
+                freqs = freqs{1};
+                attnlist = seq_parse(args{2});
+                attnlist = attnlist{1};
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, STPARS.freq);
+                    for j = 1:length(freqs)
+                        STPARS.freq = 1000.*freqs(j);
+                        STIM.wave  = tonepip(STIM.sample_freq, STPARS);
+                        STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                        fprintf(1, 'F: %7.3f  I: %4.1f\n', STPARS.freq, STPARS.attn);
+                        one_stim_set(STPARS);
+                    end
+                end
+                set_attn(120.);
+                stop_stim();
+            end
+            
+        case 'noise'  % noise rate-intensity
             %input desired sound levels e.g.- noise 20:10:40
             %TFR added
-            a = textscan(remain, '%s');
-            attnlist = seq_parse(a{1}{1});
-            attnlist = attnlist{1};
-            DA.SetTargetVal(RZ5D.Period, STPARS.ISI*RZ5D.dev_SF);
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn, 0.)
-                STIM.wave = noise_gen(STIM.sample_freq, STPARS);
-                STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-                one_stim_set(STPARS);
-            end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-
-         case 'search'  % noise mode for search, don't save data 
-            %input desired sound levels e.g.- search 20:10:40
-            %TFR added
-            a = textscan(remain, '%s');
-            attnlist = seq_parse(a{1}{1});
-            attnlist = attnlist{1};
-            DA.SetTargetVal(RZ5D.Period, STPARS.ISI*RZ5D.dev_SF);
-            STPARS.acquire_mode = 2;
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn,STPARS.freq)
-                STIM.wave = noise_gen(STIM.sample_freq, STPARS);
-                STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-                one_stim_set(STPARS);
-            end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-
-        case {'sam', 'SAM'}  % SAM Rate-intensity, single stimulus condition        
-            fprintf(2, 'SAM RI\n');
-            a = textscan(remain, '%s %s');
-            STPARS.freq = 1000*str2double(a{1}{1});
-            attnlist = seq_parse(a{2}{1});
-            attnlist = attnlist{1};
-            STIM.wave  = samStim(STIM.sample_freq, STPARS);
-            STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn, STPARS.freq)
-                one_stim_set(STPARS);
-            end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-        
-         case {'mtf', 'MTF'}  % SAM modulation transfer function          
-            fprintf(2, 'SAM Mod Xfer Function\n');
-            a = textscan(remain, '%s %s');
-            modfreqs = seq_parse(a{1}{1});
-            modfreqs = modfreqs{1};
-            attnlist = seq_parse(a{2}{1});
-            attnlist = attnlist{1};
-            STIM.wave  = samStim(STIM.sample_freq, STPARS);
-            STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
-            for i = 1:length(attnlist)
-                STPARS.attn = attnlist(i);
-                set_dbSPL(STPARS.attn, STPARS.freq);
-                for j = 1:length(modfreqs)
-                    STIM.fmod = modfreqs(j);
-                    STIM.wave  = samStim(STIM.sample_freq, STPARS);
+            if nargs ~= 1
+                fprintf(1, '   Usage: noise attnsequence\n');
+            else
+                attnlist = seq_parse(args{1});
+                attnlist = attnlist{1};
+                %           DA.SetTargetVal(RZ5D.Period, STPARS.ISI*RZ5D.dev_SF);
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, 0.)
+                    STIM.wave = noise_gen(STIM.sample_freq, STPARS);
                     STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
                     one_stim_set(STPARS);
                 end
+                set_attn(120.);
+                stop_stim();
             end
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-
-        case {'fsweep', 'fm', 'fmsweep'}  % expects list of frequencies
-            fsw = seq_parse(remain);
-            swf = fsw{1};
-            for i = 1:length(swf)
-                STPARS.freq = swf(i);
-                STIM.wave  = tonepip(STIM.sample_freq, STPARS.amp, STPARS.freq, ...
-                    STPARS.delay, STPARS.duration, STPARS.rf, ...
-                    STPARS.phase0,  ...
-                    STPARS.ipi, STPARS.np, ...
-                    STPARS.alternate);
-                tstart = tic;
-                max(STIM.wave)
-                present_stim(RP, DA, RZ5D, AO);
-                while toc(tstart) < STPARS.ISI   
+            
+        case {'search', 's'}  % noise mode for search, don't save data
+            %input desired sound levels e.g.- search 20:10:40
+            %TFR added
+            if nargs ~= 1
+                fprintf(1, '   Usage: search attn\n');
+            else
+                attnlist = str2double(args{1});
+                %                DA.SetTargetVal(RZ5D.Period, STPARS.ISI*RZ5D.dev_SF);
+                % in order to capture a key press, we need an active figure, so here we make one
+                %                 figurehandle = figure(1);  % make a blank figure
+                %                 StopKeyHit = 0;
+                %                 set(figurehandle,'KeyPressFcn', @key_pressed_fcn);
+                for i = 1:5
+                    if StopKeyHit
+                        break
+                    end
+                    STPARS.acquire_mode = 2;
+                    STPARS.attn = attnlist;
+                    set_dbSPL(STPARS.attn, STPARS.freq);
+                    STIM.wave = noise_gen(STIM.sample_freq, STPARS);
+                    STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                    one_stim_set(STPARS);
                 end
-
+                %                 StopKeyHit = 0;
+                %                 if ishandle(figurehandle)  % Not closed before
+                %                     close(figurehandle)
+                %                 end
+                set_attn(120.);
+                stop_stim();
             end
-     %       DA.SetSysMode(0);
-            set_attn(120.);
-            stop_stim(RP, DA, AO);
-
+            
+        case {'sam', 'SAM'}  % SAM Rate-intensity, single stimulus condition
+            fprintf(2, 'SAM RI\n');
+            if nargs ~= 2
+                fprintf(1, '   Usage: sam frequency attnsequence\n');
+            else
+                STPARS.freq = 1000*str2double(args{1});
+                attnlist = seq_parse(args{2});
+                attnlist = attnlist{1};
+                STIM.wave  = samStim(STIM.sample_freq, STPARS);
+                STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, STPARS.freq)
+                    one_stim_set(STPARS);
+                end
+                set_attn(120.);
+                stop_stim();
+            end
+            
+        case {'mtf', 'MTF'}  % SAM modulation transfer function
+            fprintf(2, 'SAM Mod Xfer Function\n');
+            if nargs ~= 2
+                fprintf(1, '   Usage: mtf freqsequence attnsequence\n');
+            else
+                modfreqs = seq_parse(args{1});
+                modfreqs = modfreqs{1};
+                attnlist = seq_parse(args{2});
+                attnlist = attnlist{1};
+                STIM.wave  = samStim(STIM.sample_freq, STPARS);
+                STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, STPARS.freq);
+                    for j = 1:length(modfreqs)
+                        STIM.fmod = modfreqs(j);
+                        STIM.wave  = samStim(STIM.sample_freq, STPARS);
+                        STIM.wave = build_cycle(STIM.wave, STIM.sample_freq, STPARS);
+                        one_stim_set(STPARS);
+                    end
+                end
+                set_attn(120.);
+                stop_stim();
+            end
+            
+        case {'fsweep'}  % expects list or seqparse of frequencies
+            if nargs ~= 2
+                fprintf(1,'    Usage fsweep frequencysequence attensequence\n');
+            else
+                fsw = seq_parse(args{1});
+                swf = fsw{1};
+                attnlist = seq_parse(args{2});
+                attnlist = attnlist{1};
+                for i = 1:length(attnlist)
+                    STPARS.attn = attnlist(i);
+                    set_dbSPL(STPARS.attn, STPARS.freq);
+                    
+                    for j = 1:length(swf)
+                        STPARS.freq = swf(j);
+                        STIM.wave  = tonepip(STIM.sample_freq, STPARS);
+                        one_stim_set(STPARS);
+                    end
+                end
+                %       DA.SetSysMode(0);
+                set_attn(120.);
+                stop_stim();
+            end
+            
+            
+    %
+    % Remainder of cases are parameters, not protocols
+    %
         case 'nsweep'  % set number of sweeps
-            STPARS.n_sweeps = str2double(remain);
+            STPARS.n_sweeps = str2double(args{1});
         case {'nreps', 'nrep'}
-            STPARS.nreps = str2double(remain);
+            STPARS.nreps = str2double(args{1});
         case {'del', 'delay'}  % set stimulus delay
-            STPARS.delay = str2double(remain);
+            STPARS.delay = str2double(args{1});
         case {'dur', 'duration'}
-            STPARS.duration = str2double(remain);
+            STPARS.duration = str2double(args{1});
         case {'rise', 'rf'}
-            STPARS.rf = str2double(remain);
+            STPARS.rf = str2double(args{1});
         case 'phase0'
-            STPARS.phase0 = str2double(remain);
+            STPARS.phase0 = str2double(args{1});
         case 'ipi'
-            STPARS.ipi = str2double(remain);
+            STPARS.ipi = str2double(args{1});
         case {'ISI', 'isi'}
-            STPARS.ISI = str2double(remain);
+            STPARS.ISI = str2double(args{1});
         case 'np'
-            STPARS.np = str2double(remain);
+            STPARS.np = str2double(args{1});
         case 'dmod'
-            STPARS.dmod = str2double(remain);
+            STPARS.dmod = str2double(args{1});
         case 'fmod'
-            STPARS.fmod = str2double(remain);
+            STPARS.fmod = str2double(args{1});
         case {'freq', 'frequency'}
-            STPARS.freq = str2double(remain);
+            STPARS.freq = str2double(args{1});
         case {'alt', 'alternate'}
-            alt = strcmpi(remain, {'off', 'on'});
+            alt = strcmpi(args{1}, {'off', 'on'});
             if any(alt)
-                fprintf(2, 'Alternation: options are on and off; got %s\n', remain)
+                fprintf(2, 'Alternation: options are on and off; got %s\n', args{1})
                 break
             end
             if alt(0) == 1
@@ -285,7 +330,7 @@ while get(gcf,'currentchar')==' '
             if alt(1) == 1
                 STPARS.alternate = true;
             end
-
+            
         case 'show'  % list current stim parameters
             STPARS
             
@@ -306,6 +351,18 @@ fprintf(1, 'StimController ... quitting\n');
 return %for StimController
 end %of function StimController
 
+
+function key_pressed_fcn(fig_obj,eventDat)
+global StopKeyHit
+% get(fig_obj, 'CurrentKey')
+% get(fig_obj, 'CurrentCharacter')
+% get(fig_obj, 'CurrentModifier')
+if eventDat.Character == 's'
+    StopKeyHit = 1;
+end
+%disp(eventDat)
+end
+
 function [w] = build_cycle(w, samplefreq, PARS)
 % build out the waveform to the cycle time (ISI) time.
 % pts = length(w);
@@ -315,24 +372,25 @@ w = w;
 end
 
 function one_stim_set(STPARS)
-global RP DA RZ5D AO STCOUNT
+global STCOUNT
 STCOUNT = 0;
 duration = STPARS.ISI*STPARS.nreps + (STPARS.duration+STPARS.delay)/1000.;
 %fprintf(2, 'Duration: %d\n', int64(duration));
-present_stim(RP, DA, RZ5D, AO);
+present_stim();
 tstart = tic;
 while toc(tstart) < duration
     pause(0.001)
 end
 toc(tstart)
-stop_stim(RP, DA, AO);
+stop_stim();
 fprintf(2, 'Stimcount: %d\n', STCOUNT);
 end
 
-function stop_stim(RP, DA, AO)
+function stop_stim()
+global RP DA AO
 global RPActive
 global STPARS
-STPARS.acquire_mode = 3;
+STPARS.acquire_mode = 3;  % reset the mode in case we jus
 if RPActive
     RP.Halt;
 else
@@ -349,7 +407,6 @@ if freq > 0  % for single freq or narrow-band stimuli
     splatF = interp1(CAL.Freqs, CAL.maxdB, freq, 'spline');
 else
     splatF = interp1(CAL.Freqs, CAL.maxdB, 16000, 'spline');
-    
 end
 attn = splatF-spl+SPKR.attn;
 if(attn < 6.)
@@ -360,7 +417,8 @@ set_attn(attn)
 end
 
 
-function  present_stim(RP, DA, RZ5D, AO)
+function  present_stim()
+global RP DA AO RZ5D
 global STIM
 global STPARS
 global RPActive
@@ -370,7 +428,7 @@ global Listener
 % It is **essential** that the RZ5D be in Standby (NOT IDLE)
 % mode in order to set parameters to the circuit elements
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-DA.SetSysMode(1)  
+DA.SetSysMode(1)
 % fprintf(1, 'setting ISI to %f\n', STPARS.ISI*RZ5D.dev_SF)
 DA.SetTargetVal(RZ5D.Period, STPARS.ISI*RZ5D.dev_SF);
 DA.SetTargetVal(RZ5D.Cnt, STPARS.nreps);
@@ -397,13 +455,13 @@ if RPActive == 1
         error('failed to connect to rp2');
     end;
     STIM.RP2COFFlag = samp_cof_flag;
-
+    
     if RP.ClearCOF() == 0
         error('failed to clear cof');
     end;
     thisdir = pwd;
     if (RP.LoadCOFsf(['C:\TDT\OpenEx\MyProjects\EPhys_RZ5D_PZ5-32\RCOCircuits\TriggeredWaveformPlayer_RP2.rcx'], ...
-           STIM.RP2COFFlag) == 0)
+            STIM.RP2COFFlag) == 0)
         error ('failed to load TriggeredWaveformPlayer.rcx file');
     end;
     if RPActive == 1
@@ -412,7 +470,7 @@ if RPActive == 1
         STIM.sample_freq = sfreq;
     end
     RP.Run();
-
+    
     status = double(RP.GetStatus());
     if bitget(double(status), 1) == 0
         fprintf(2, 'rp_setup: Error connecting to RP2.1\n');
@@ -433,7 +491,7 @@ else
     RP = [];
 end
 
-% 
+%
 fprintf(1, 'Attempting to Connect to RZ5D\n');
 DA = actxcontrol('TDevAcc.X');
 DA.ConnectServer('Local')
@@ -455,14 +513,14 @@ RZ5D.device_Status = DA.GetDeviceStatus(RZ5D.device_Name);
 % if connected == 1 & RZ5D.device_Name== ' '
 %     DA.ConnectServer('Local')
 % end
-if DA.ConnectServer('Local') == 0 
-%     DA.ConnectServer('Local')
-%     RZ5D.device_Name = DA.GetDeviceName(0)
-%     RZ5D.device_Status = DA.GetDeviceStatus(RZ5D.device_Name);
-%     if RZ5D.device_Status == 0
-        fprintf(2, 'Cannot connect to RZ5D? \n');
-        return;
-%     end
+if DA.ConnectServer('Local') == 0
+    %     DA.ConnectServer('Local')
+    %     RZ5D.device_Name = DA.GetDeviceName(0)
+    %     RZ5D.device_Status = DA.GetDeviceStatus(RZ5D.device_Name);
+    %     if RZ5D.device_Status == 0
+    fprintf(2, 'Cannot connect to RZ5D? \n');
+    return;
+    %     end
 end
 fprintf(1, '    RZ5D Device Status: %s\n', StatusMap(RZ5D.device_Status));
 

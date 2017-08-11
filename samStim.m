@@ -1,6 +1,9 @@
-function [varargout] = samStim(sampfreq,PARS)
+%
+% Create sinusoidally modulated tone
+%
+function [varargout] = samStim(sampfreq, PARS)
 
-if nargout == 0 
+if nargout == 0
     PARS = testpars();
     sampfreq = 100000.;
 end;
@@ -9,20 +12,24 @@ sineC = tone(sampfreq, PARS);
 PARS.freq = PARS.fmod;
 PARS.sine = 1;
 stimlen = length(sineC);
-sineM =ones(stimlen,1)+ PARS.dmod*tone(sampfreq,PARS);
 
-ws = sineC .* sineM./PARS.amp;  %correction for multiplying by the amplitude twice
 if PARS.dmod > 0.
-    ws = ws .* envel(sampfreq, PARS);  % envelope is phase shifted -90 to start at 0.
+    ws = sineC .* envel(sampfreq, PARS);  % envelope is phase shifted -90 to start at 0.
+else
+    ws = sineC;
 end;
 
-wf = cosgate(sampfreq, ws, PARS.rf);
 sratems = 1000.0/sampfreq;
+wf = cosgate(sampfreq, ws, PARS.rf);
+
 delaypts = floor(PARS.delay/sratems);
 wf = vertcat(zeros(delaypts, 1), wf);
 tb = 0:sratems:(length(wf)-1)*sratems;
-figure(88);
-plot(wf)
+% tbe = 0:sratems:(length(wf)-1)*sratems;
+% figure(88);
+% plot(tb, wf)
+% hold on
+% plot(tbe, ws, 'r-')
 if(nargout >= 1)
     varargout{1} = wf;
 end;
